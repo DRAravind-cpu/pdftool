@@ -1,0 +1,7 @@
+[theme]
+# Streamlit theme primitives (keeps UI colourful without custom CSS)
+primaryColor = "#6C5CE7"
+backgroundColor = "#0B1020"
+secondaryBackgroundColor = "#131A33"
+textColor = "#EAF2FF"
+font = "sans serif"
