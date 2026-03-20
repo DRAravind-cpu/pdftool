@@ -4,3 +4,7 @@ tesseract-ocr-eng
 tesseract-ocr-tam
 ghostscript
 qpdf
+libreoffice-core
+libreoffice-writer
+libreoffice-calc
+libreoffice-impress

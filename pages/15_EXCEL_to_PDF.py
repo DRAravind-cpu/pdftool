@@ -25,9 +25,9 @@ st.title("EXCEL to PDF")
 
 deps = get_dependency_status()
 
-st.info("Uses LibreOffice (soffice) if installed.")
+st.info("Uses LibreOffice-compatible CLI (`soffice`/`libreoffice`) if installed.")
 if not deps.libreoffice:
-    st.warning("Requires 'soffice' (LibreOffice).")
+    st.warning("Requires LibreOffice CLI (`soffice` or `libreoffice`).")
 f = st.file_uploader("XLS/XLSX", type=["xls", "xlsx"], key="xls2pdf")
 if f and st.button("Convert", key="xls2pdf_btn"):
     if not deps.libreoffice:
@@ -35,15 +35,10 @@ if f and st.button("Convert", key="xls2pdf_btn"):
     with tempfile.TemporaryDirectory() as td:
         in_path = Path(td) / f.name
         in_path.write_bytes(f.read())
-        subprocess.check_call([
-            deps.soffice_cmd or "soffice",
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            td,
-            str(in_path),
-        ])
-        out_path = in_path.with_suffix(".pdf")
+        out_path = office_convert_to_pdf(
+            office_cmd=deps.soffice_cmd or "soffice",
+            in_path=in_path,
+            out_dir=Path(td),
+        )
         download_button("Download PDF", out_path.read_bytes(), out_path.name)
 

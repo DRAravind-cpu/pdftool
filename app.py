@@ -124,6 +124,9 @@ def get_dependency_status() -> DependencyStatus:
     lo_candidates: list[str] = [
         "/Applications/LibreOffice.app/Contents/MacOS/soffice",
         "/Applications/LibreOffice.app/Contents/MacOS/soffice.bin",
+        "/usr/bin/soffice",
+        "/usr/bin/libreoffice",
+        "/usr/lib/libreoffice/program/soffice",
     ]
     try:
         apps = Path("/Applications")
@@ -135,6 +138,11 @@ def get_dependency_status() -> DependencyStatus:
         pass
 
     soffice_cmd = resolve_executable("soffice", candidates=lo_candidates)
+    if soffice_cmd is None:
+        soffice_cmd = resolve_executable(
+            "libreoffice",
+            candidates=lo_candidates,
+        )
     gs_cmd = resolve_executable(
         "gs",
         candidates=[
@@ -369,6 +377,23 @@ def run_cmd(args: list[str], *, input_bytes: Optional[bytes] = None) -> bytes:
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.decode("utf-8", errors="replace")[:4000])
     return proc.stdout
+
+
+def office_convert_to_pdf(*, office_cmd: str, in_path: Path, out_dir: Path) -> Path:
+    subprocess.check_call([
+        office_cmd,
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(out_dir),
+        str(in_path),
+    ])
+    return in_path.with_suffix(".pdf")
 
 
 def rewrite_pdf_with_pypdf(pdf_bytes: bytes) -> bytes:
@@ -1115,9 +1140,9 @@ def main():
                 download_button("Download PDF", out.getvalue(), "images.pdf")
 
         with st.expander("WORD to PDF"):
-            st.info("Uses LibreOffice (soffice) if installed.")
+            st.info("Uses LibreOffice-compatible CLI (`soffice`/`libreoffice`) if installed.")
             if not deps.libreoffice:
-                st.warning("Requires 'soffice' (LibreOffice).")
+                st.warning("Requires LibreOffice CLI (`soffice` or `libreoffice`).")
             f = st.file_uploader("DOC/DOCX", type=["doc", "docx"], key="doc2pdf")
             if f and st.button("Convert", key="doc2pdf_btn"):
                 if not deps.libreoffice:
@@ -1125,22 +1150,17 @@ def main():
                 with tempfile.TemporaryDirectory() as td:
                     in_path = Path(td) / f.name
                     in_path.write_bytes(f.read())
-                    subprocess.check_call([
-                        deps.soffice_cmd or "soffice",
-                        "--headless",
-                        "--convert-to",
-                        "pdf",
-                        "--outdir",
-                        td,
-                        str(in_path),
-                    ])
-                    out_path = in_path.with_suffix(".pdf")
+                    out_path = office_convert_to_pdf(
+                        office_cmd=deps.soffice_cmd or "soffice",
+                        in_path=in_path,
+                        out_dir=Path(td),
+                    )
                     download_button("Download PDF", out_path.read_bytes(), out_path.name)
 
         with st.expander("POWERPOINT to PDF"):
-            st.info("Uses LibreOffice (soffice) if installed.")
+            st.info("Uses LibreOffice-compatible CLI (`soffice`/`libreoffice`) if installed.")
             if not deps.libreoffice:
-                st.warning("Requires 'soffice' (LibreOffice).")
+                st.warning("Requires LibreOffice CLI (`soffice` or `libreoffice`).")
             f = st.file_uploader("PPT/PPTX", type=["ppt", "pptx"], key="ppt2pdf")
             if f and st.button("Convert", key="ppt2pdf_btn"):
                 if not deps.libreoffice:
@@ -1148,22 +1168,17 @@ def main():
                 with tempfile.TemporaryDirectory() as td:
                     in_path = Path(td) / f.name
                     in_path.write_bytes(f.read())
-                    subprocess.check_call([
-                        deps.soffice_cmd or "soffice",
-                        "--headless",
-                        "--convert-to",
-                        "pdf",
-                        "--outdir",
-                        td,
-                        str(in_path),
-                    ])
-                    out_path = in_path.with_suffix(".pdf")
+                    out_path = office_convert_to_pdf(
+                        office_cmd=deps.soffice_cmd or "soffice",
+                        in_path=in_path,
+                        out_dir=Path(td),
+                    )
                     download_button("Download PDF", out_path.read_bytes(), out_path.name)
 
         with st.expander("EXCEL to PDF"):
-            st.info("Uses LibreOffice (soffice) if installed.")
+            st.info("Uses LibreOffice-compatible CLI (`soffice`/`libreoffice`) if installed.")
             if not deps.libreoffice:
-                st.warning("Requires 'soffice' (LibreOffice).")
+                st.warning("Requires LibreOffice CLI (`soffice` or `libreoffice`).")
             f = st.file_uploader("XLS/XLSX", type=["xls", "xlsx"], key="xls2pdf")
             if f and st.button("Convert", key="xls2pdf_btn"):
                 if not deps.libreoffice:
@@ -1171,16 +1186,11 @@ def main():
                 with tempfile.TemporaryDirectory() as td:
                     in_path = Path(td) / f.name
                     in_path.write_bytes(f.read())
-                    subprocess.check_call([
-                        deps.soffice_cmd or "soffice",
-                        "--headless",
-                        "--convert-to",
-                        "pdf",
-                        "--outdir",
-                        td,
-                        str(in_path),
-                    ])
-                    out_path = in_path.with_suffix(".pdf")
+                    out_path = office_convert_to_pdf(
+                        office_cmd=deps.soffice_cmd or "soffice",
+                        in_path=in_path,
+                        out_dir=Path(td),
+                    )
                     download_button("Download PDF", out_path.read_bytes(), out_path.name)
 
         with st.expander("HTML to PDF"):
