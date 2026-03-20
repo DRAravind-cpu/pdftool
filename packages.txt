@@ -1,0 +1,14 @@
+# System packages for Streamlit Community Cloud (Debian/Ubuntu)
+# These provide the external binaries that the app detects via `shutil.which`.
+
+poppler-utils
+
+tesseract-ocr
+tesseract-ocr-eng
+
+ghostscript
+
+qpdf
+
+# NOTE: LibreOffice is large; Streamlit Cloud builds may take longer.
+libreoffice
