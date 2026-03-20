@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import zipfile
 import base64
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -15,6 +16,13 @@ from pypdf import PdfReader, PdfWriter
 
 
 APP_TITLE = "PDF & Image Tools"
+
+# Streamlit multipage can execute the main script as `__main__`, while tool pages
+# do `import app` / `from app import *`. That can result in two copies of this
+# file being loaded and the `app` import becoming stale after a rerun.
+# Alias the currently-running module as `app` so pages always import the latest.
+if __name__ == "__main__":
+    sys.modules["app"] = sys.modules[__name__]
 
 
 @dataclass
