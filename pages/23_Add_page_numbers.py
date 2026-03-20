@@ -30,9 +30,11 @@ try:
 except Exception:
     _app = _load_local_app()
 
-APP_TITLE = getattr(_app, 'APP_TITLE', 'PDF & Image Tools')
-from app import *
+for _name in dir(_app):
+    if not _name.startswith('__'):
+        globals()[_name] = getattr(_app, _name)
 
+APP_TITLE = getattr(_app, 'APP_TITLE', 'PDF & Image Tools')
 st.set_page_config(page_title=f"{APP_TITLE} - Add page numbers", layout="wide")
 if st.button("← Home"):
     st.switch_page("app.py")
