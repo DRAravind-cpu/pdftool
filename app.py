@@ -4,11 +4,13 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 from pypdf import PdfReader, PdfWriter
 
 
@@ -23,9 +25,66 @@ class DependencyStatus:
     ghostscript: bool
     qpdf: bool
 
+    # Resolved binary locations (when found). Useful on macOS where Streamlit's PATH
+    # can differ from the interactive shell.
+    pdftoppm_cmd: Optional[str] = None
+    poppler_path: Optional[str] = None  # directory containing pdftoppm
+    tesseract_cmd: Optional[str] = None
+    soffice_cmd: Optional[str] = None
+    gs_cmd: Optional[str] = None
+    qpdf_cmd: Optional[str] = None
 
-def which(cmd: str) -> Optional[str]:
-    return shutil.which(cmd)
+
+def _is_executable_file(path: str | Path) -> bool:
+    try:
+        p = Path(path)
+        return p.is_file() and os.access(str(p), os.X_OK)
+    except Exception:
+        return False
+
+
+def which(cmd: str, *, extra_dirs: Iterable[str] = ()) -> Optional[str]:
+    found = shutil.which(cmd)
+    if found:
+        return found
+
+    path = os.environ.get("PATH", "")
+    for d in extra_dirs:
+        if not d:
+            continue
+        found = shutil.which(cmd, path=str(d) + os.pathsep + path)
+        if found:
+            return found
+    return None
+
+
+def resolve_executable(cmd: str, *, candidates: Iterable[str] = ()) -> Optional[str]:
+    # 1) Normal PATH
+    found = which(cmd)
+    if found:
+        return found
+
+    # 2) Common macOS install locations (Homebrew Intel + Apple Silicon)
+    common_dirs = [
+        "/opt/local/bin",
+        "/opt/local/sbin",
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+    ]
+    found = which(cmd, extra_dirs=common_dirs)
+    if found:
+        return found
+
+    # 3) Tool-specific candidates (including .app bundles)
+    for c in candidates:
+        if c and _is_executable_file(c):
+            return str(Path(c))
+
+    return None
 
 
 def get_dependency_status() -> DependencyStatus:
@@ -34,13 +93,241 @@ def get_dependency_status() -> DependencyStatus:
     # - tesseract: tesseract
     # - libreoffice: soffice
     # - ghostscript: gs
-    return DependencyStatus(
-        poppler=which("pdftoppm") is not None,
-        tesseract=which("tesseract") is not None,
-        libreoffice=which("soffice") is not None,
-        ghostscript=which("gs") is not None,
-        qpdf=which("qpdf") is not None,
+    pdftoppm_cmd = resolve_executable(
+        "pdftoppm",
+        candidates=[
+            "/opt/local/bin/pdftoppm",
+            "/opt/homebrew/opt/poppler/bin/pdftoppm",
+            "/usr/local/opt/poppler/bin/pdftoppm",
+            "/opt/homebrew/bin/pdftoppm",
+            "/usr/local/bin/pdftoppm",
+        ],
     )
+    tesseract_cmd = resolve_executable(
+        "tesseract",
+        candidates=[
+            "/opt/local/bin/tesseract",
+            "/opt/homebrew/bin/tesseract",
+            "/usr/local/bin/tesseract",
+            "/opt/homebrew/opt/tesseract/bin/tesseract",
+            "/usr/local/opt/tesseract/bin/tesseract",
+        ],
+    )
+    lo_candidates: list[str] = [
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice.bin",
+    ]
+    try:
+        apps = Path("/Applications")
+        for p in apps.glob("LibreOffice*.app/Contents/MacOS/soffice"):
+            lo_candidates.append(str(p))
+        for p in apps.glob("LibreOffice*.app/Contents/MacOS/soffice.bin"):
+            lo_candidates.append(str(p))
+    except Exception:
+        pass
+
+    soffice_cmd = resolve_executable("soffice", candidates=lo_candidates)
+    gs_cmd = resolve_executable(
+        "gs",
+        candidates=[
+            "/opt/local/bin/gs",
+            "/opt/homebrew/bin/gs",
+            "/usr/local/bin/gs",
+            "/opt/homebrew/opt/ghostscript/bin/gs",
+            "/usr/local/opt/ghostscript/bin/gs",
+        ],
+    )
+    qpdf_cmd = resolve_executable(
+        "qpdf",
+        candidates=[
+            "/opt/local/bin/qpdf",
+            "/opt/homebrew/bin/qpdf",
+            "/usr/local/bin/qpdf",
+            "/opt/homebrew/opt/qpdf/bin/qpdf",
+            "/usr/local/opt/qpdf/bin/qpdf",
+        ],
+    )
+
+    poppler_path = str(Path(pdftoppm_cmd).parent) if pdftoppm_cmd else None
+
+    return DependencyStatus(
+        poppler=pdftoppm_cmd is not None,
+        tesseract=tesseract_cmd is not None,
+        libreoffice=soffice_cmd is not None,
+        ghostscript=gs_cmd is not None,
+        qpdf=qpdf_cmd is not None,
+        pdftoppm_cmd=pdftoppm_cmd,
+        poppler_path=poppler_path,
+        tesseract_cmd=tesseract_cmd,
+        soffice_cmd=soffice_cmd,
+        gs_cmd=gs_cmd,
+        qpdf_cmd=qpdf_cmd,
+    )
+
+
+def pdf2image_convert_from_bytes(
+    pdf_bytes: bytes,
+    *,
+    fmt: str,
+    poppler_path: Optional[str] = None,
+    dpi: Optional[int] = None,
+    first_page: Optional[int] = None,
+    last_page: Optional[int] = None,
+):
+    from pdf2image import convert_from_bytes
+
+    kwargs: dict = {"fmt": fmt}
+    if dpi is not None:
+        kwargs["dpi"] = int(dpi)
+    if first_page is not None:
+        kwargs["first_page"] = int(first_page)
+    if last_page is not None:
+        kwargs["last_page"] = int(last_page)
+    if poppler_path:
+        kwargs["poppler_path"] = poppler_path
+    return convert_from_bytes(pdf_bytes, **kwargs)
+
+
+def _uploaded_file_bytes(uploaded_file) -> bytes:
+    if uploaded_file is None:
+        return b""
+    getvalue = getattr(uploaded_file, "getvalue", None)
+    if callable(getvalue):
+        val = getvalue()
+        if isinstance(val, (bytes, bytearray, memoryview)):
+            return bytes(val)
+        return b""
+    read = getattr(uploaded_file, "read", None)
+    if callable(read):
+        data = read()
+        seek = getattr(uploaded_file, "seek", None)
+        if callable(seek):
+            try:
+                seek(0)
+            except Exception:
+                pass
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            return bytes(data)
+        return b""
+    return b""
+
+
+def _is_pdf_upload(uploaded_file) -> bool:
+    if uploaded_file is None:
+        return False
+    name = (getattr(uploaded_file, "name", "") or "").lower()
+    if name.endswith(".pdf"):
+        return True
+    mime = (getattr(uploaded_file, "type", "") or "").lower()
+    return mime == "application/pdf" or mime.endswith("/pdf")
+
+
+def _is_image_upload(uploaded_file) -> bool:
+    if uploaded_file is None:
+        return False
+    mime = (getattr(uploaded_file, "type", "") or "").lower()
+    if mime.startswith("image/"):
+        return True
+    name = (getattr(uploaded_file, "name", "") or "").lower()
+    return any(name.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic", ".heif"])
+
+
+def _preview_pdf_bytes(pdf_bytes: bytes, *, deps: DependencyStatus, file_name: str = "document.pdf"):
+    # Render first page as an image (avoids Chrome blocking embedded PDFs).
+    # Prefer PyMuPDF (pure Python wheels) and fall back to Poppler/pdf2image when available.
+
+    # 1) PyMuPDF
+    try:
+        import fitz  # type: ignore
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        if doc.page_count >= 1:
+            page = doc.load_page(0)
+            pix = page.get_pixmap(dpi=140)
+            png_bytes = pix.tobytes("png")
+            st.image(png_bytes, caption=f"Preview: {file_name} (page 1)", use_container_width=True)
+            return
+    except Exception:
+        pass
+
+    # 2) Poppler/pdf2image
+    if deps.poppler:
+        try:
+            images = pdf2image_convert_from_bytes(
+                pdf_bytes,
+                fmt="png",
+                dpi=140,
+                first_page=1,
+                last_page=1,
+                poppler_path=deps.poppler_path,
+            )
+            if images:
+                st.image(images[0], caption=f"Preview: {file_name} (page 1)", use_container_width=True)
+                return
+        except Exception:
+            pass
+
+    st.info("Preview unavailable. Install `pymupdf` (recommended) or Poppler (`pdftoppm`) to preview PDFs.")
+
+
+def _preview_uploaded(uploaded, *, deps: DependencyStatus):
+    if uploaded is None:
+        return
+
+    # Multiple file uploader returns a list.
+    if isinstance(uploaded, list):
+        if not uploaded:
+            return
+        # Preview all PDFs (page 1) as requested; also preview images.
+        any_previewed = False
+        for item in uploaded:
+            if _is_pdf_upload(item) or _is_image_upload(item):
+                _preview_uploaded(item, deps=deps)
+                any_previewed = True
+        if not any_previewed:
+            first = uploaded[0]
+            st.caption(f"Previewing first upload: {getattr(first, 'name', '')}")
+            return _preview_uploaded(first, deps=deps)
+        return
+
+    if _is_image_upload(uploaded):
+        try:
+            img = pil_open_image(uploaded)
+            st.image(img, caption=f"Preview: {getattr(uploaded, 'name', 'image')}", use_container_width=True)
+        except Exception as e:
+            st.caption(f"Preview unavailable: {e}")
+        return
+
+    if _is_pdf_upload(uploaded):
+        pdf_bytes = _uploaded_file_bytes(uploaded)
+        if not pdf_bytes:
+            return
+        _preview_pdf_bytes(pdf_bytes, deps=deps, file_name=getattr(uploaded, "name", "document.pdf"))
+        return
+
+
+def _install_file_uploader_preview_patch():
+    # Patch Streamlit's file_uploader once so every tool page gets previews.
+    if getattr(st, "_pdf_tools_uploader_patched", False):
+        return
+    st._pdf_tools_uploader_patched = True  # type: ignore[attr-defined]
+
+    orig = st.file_uploader
+
+    def wrapped_file_uploader(*args, **kwargs):
+        uploaded = orig(*args, **kwargs)
+        try:
+            deps = get_dependency_status()
+            _preview_uploaded(uploaded, deps=deps)
+        except Exception:
+            # Never block tool flows due to preview issues.
+            pass
+        return uploaded
+
+    st.file_uploader = wrapped_file_uploader  # type: ignore[assignment]
+
+
+_install_file_uploader_preview_patch()
 
 
 def run_cmd(args: list[str], *, input_bytes: Optional[bytes] = None) -> bytes:
@@ -66,13 +353,13 @@ def rewrite_pdf_with_pypdf(pdf_bytes: bytes) -> bytes:
     return writer_to_bytes(writer)
 
 
-def qpdf_optimize(pdf_bytes: bytes) -> bytes:
+def qpdf_optimize(pdf_bytes: bytes, *, qpdf_cmd: str = "qpdf") -> bytes:
     # qpdf is the most reliable open-source optimizer on macOS.
     with tempfile.TemporaryDirectory() as td:
         in_path = Path(td) / "in.pdf"
         out_path = Path(td) / "out.pdf"
         in_path.write_bytes(pdf_bytes)
-        run_cmd(["qpdf", "--linearize", "--stream-data=compress", str(in_path), str(out_path)])
+        run_cmd([qpdf_cmd, "--linearize", "--stream-data=compress", str(in_path), str(out_path)])
         return out_path.read_bytes()
 
 
@@ -322,12 +609,16 @@ def parse_page_list(text: str) -> list[int]:
     return [int(x.strip()) for x in text.split(",") if x.strip()]
 
 
-def redact_via_rasterize(pdf_bytes: bytes, boxes: list[tuple[int, float, float, float, float]]) -> bytes:
+def redact_via_rasterize(
+    pdf_bytes: bytes,
+    boxes: list[tuple[int, float, float, float, float]],
+    *,
+    poppler_path: Optional[str] = None,
+) -> bytes:
     # boxes: (page, x1, y1, x2, y2) normalized 0..1, origin top-left.
-    from pdf2image import convert_from_bytes
     from PIL import ImageDraw
 
-    images = convert_from_bytes(pdf_bytes, fmt="png", dpi=200)
+    images = pdf2image_convert_from_bytes(pdf_bytes, fmt="png", dpi=200, poppler_path=poppler_path)
     by_page: dict[int, list[tuple[float, float, float, float]]] = {}
     for page, x1, y1, x2, y2 in boxes:
         by_page.setdefault(page, []).append((x1, y1, x2, y2))
@@ -451,8 +742,64 @@ def main():
             }
         )
         st.caption(
+            "Resolved: "
+            + ", ".join(
+                [
+                    f"pdftoppm={deps.pdftoppm_cmd or 'not found'}",
+                    f"tesseract={deps.tesseract_cmd or 'not found'}",
+                    f"soffice={deps.soffice_cmd or 'not found'}",
+                    f"gs={deps.gs_cmd or 'not found'}",
+                    f"qpdf={deps.qpdf_cmd or 'not found'}",
+                ]
+            )
+        )
+        st.caption(
             "Missing dependencies will only disable the related tools; the rest still works."
         )
+
+        missing: list[str] = []
+        if not deps.poppler:
+            missing.append("poppler")
+        if not deps.tesseract:
+            missing.append("tesseract")
+        if not deps.libreoffice:
+            missing.append("libreoffice")
+        if not deps.ghostscript:
+            missing.append("ghostscript")
+        if not deps.qpdf:
+            missing.append("qpdf")
+
+        if missing:
+            is_macports = resolve_executable("port") is not None or (deps.tesseract_cmd or "").startswith("/opt/local/")
+            if is_macports:
+                st.caption("Install missing tools (MacPorts):")
+                st.code("sudo port install " + " ".join(sorted(set(missing))), language="bash")
+            else:
+                st.caption("Install missing tools (Homebrew):")
+                st.code("brew install " + " ".join(sorted(set(missing))), language="bash")
+
+    # Home router: send the user to a dedicated Streamlit page per tool.
+    pages_dir = Path(__file__).parent / "pages"
+    page_files = sorted([p for p in pages_dir.glob("*.py") if not p.name.startswith("__")]) if pages_dir.exists() else []
+    if page_files:
+        tool_map: dict[str, str] = {}
+        for p in page_files:
+            stem = p.stem
+            parts = stem.split("_", 1)
+            if len(parts) == 2 and parts[0].isdigit():
+                display = parts[1]
+            else:
+                display = stem
+            display = display.replace("_", " ")
+            tool_map[display] = f"pages/{p.name}"
+
+        st.subheader("Open a tool")
+        choice = st.selectbox("Tool", options=["— Select —", *tool_map.keys()], index=0)
+        if choice and choice != "— Select —":
+            st.switch_page(tool_map[choice])
+            st.stop()
+        st.caption("Tip: you can also use Streamlit's sidebar Pages list.")
+        st.stop()
 
     # Layout inspired by the screenshot: categories and tools.
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -602,7 +949,11 @@ def main():
             if f and st.button("Compress/Optimize", key="compress_btn"):
                 data = f.read()
                 try:
-                    out = qpdf_optimize(data) if deps.qpdf else rewrite_pdf_with_pypdf(data)
+                    out = (
+                        qpdf_optimize(data, qpdf_cmd=deps.qpdf_cmd or "qpdf")
+                        if deps.qpdf
+                        else rewrite_pdf_with_pypdf(data)
+                    )
                 except Exception as e:
                     st.error(f"Optimization failed: {e}")
                     st.stop()
@@ -617,7 +968,7 @@ def main():
                 data = f.read()
                 try:
                     if deps.qpdf:
-                        out = qpdf_optimize(data)
+                        out = qpdf_optimize(data, qpdf_cmd=deps.qpdf_cmd or "qpdf")
                     else:
                         out = rewrite_pdf_with_pypdf(data)
                 except Exception as e:
@@ -633,10 +984,9 @@ def main():
             if f and st.button("Run OCR", key="ocr_btn"):
                 if not deps.tesseract or not deps.poppler:
                     st.stop()
-                from pdf2image import convert_from_bytes
                 import pytesseract
 
-                images = convert_from_bytes(f.read(), fmt="png", dpi=200)
+                images = pdf2image_convert_from_bytes(f.read(), fmt="png", dpi=200, poppler_path=deps.poppler_path)
                 writer = PdfWriter()
                 for img in images:
                     pdf_page_bytes = pytesseract.image_to_pdf_or_hocr(img, extension="pdf")
@@ -681,7 +1031,7 @@ def main():
                     in_path = Path(td) / f.name
                     in_path.write_bytes(f.read())
                     subprocess.check_call([
-                        "soffice",
+                        deps.soffice_cmd or "soffice",
                         "--headless",
                         "--convert-to",
                         "pdf",
@@ -704,7 +1054,7 @@ def main():
                     in_path = Path(td) / f.name
                     in_path.write_bytes(f.read())
                     subprocess.check_call([
-                        "soffice",
+                        deps.soffice_cmd or "soffice",
                         "--headless",
                         "--convert-to",
                         "pdf",
@@ -727,7 +1077,7 @@ def main():
                     in_path = Path(td) / f.name
                     in_path.write_bytes(f.read())
                     subprocess.check_call([
-                        "soffice",
+                        deps.soffice_cmd or "soffice",
                         "--headless",
                         "--convert-to",
                         "pdf",
@@ -762,9 +1112,8 @@ def main():
             if f and st.button("Convert", key="pdf2jpg_btn"):
                 if not deps.poppler:
                     st.stop()
-                from pdf2image import convert_from_bytes
 
-                images = convert_from_bytes(f.read(), fmt="jpeg")
+                images = pdf2image_convert_from_bytes(f.read(), fmt="jpeg", poppler_path=deps.poppler_path)
                 for i, img in enumerate(images, start=1):
                     buf = io.BytesIO()
                     img.save(buf, format="JPEG", quality=95)
@@ -803,11 +1152,10 @@ def main():
             if f and st.button("Convert", key="pdf2ppt_btn"):
                 if not deps.poppler:
                     st.stop()
-                from pdf2image import convert_from_bytes
                 from pptx import Presentation
                 from pptx.util import Inches
 
-                images = convert_from_bytes(f.read(), fmt="png")
+                images = pdf2image_convert_from_bytes(f.read(), fmt="png", poppler_path=deps.poppler_path)
                 prs = Presentation()
                 blank = prs.slide_layouts[6]
                 for img in images:
@@ -865,7 +1213,7 @@ def main():
                     in_path.write_bytes(f.read())
                     subprocess.check_call(
                         [
-                            "gs",
+                            deps.gs_cmd or "gs",
                             "-dPDFA",
                             "-dBATCH",
                             "-dNOPAUSE",
@@ -1038,7 +1386,7 @@ def main():
                     x1, y1, x2, y2 = map(float, parts[1:])
                     redact_boxes.append((page, x1, y1, x2, y2))
                 try:
-                    out = redact_via_rasterize(f.read(), redact_boxes)
+                    out = redact_via_rasterize(f.read(), redact_boxes, poppler_path=deps.poppler_path)
                 except Exception as e:
                     st.error(f"Redaction failed: {e}")
                     st.stop()
@@ -1233,13 +1581,12 @@ def main():
                 if not deps.poppler:
                     st.stop()
                 from weasyprint import HTML
-                from pdf2image import convert_from_bytes
 
                 pdf_bytes = HTML(string=html).write_pdf()
                 if not pdf_bytes:
                     st.error("HTML→PDF failed to produce output.")
                     st.stop()
-                images = convert_from_bytes(pdf_bytes, fmt="png", dpi=200)
+                images = pdf2image_convert_from_bytes(pdf_bytes, fmt="png", dpi=200, poppler_path=deps.poppler_path)
                 outs = []
                 for i, img in enumerate(images, start=1):
                     outs.append((f"page-{i}.png", pil_to_bytes(img, "png")))

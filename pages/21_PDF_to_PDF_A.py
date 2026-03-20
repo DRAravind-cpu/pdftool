@@ -1,0 +1,36 @@
+import streamlit as st
+from app import *
+
+st.set_page_config(page_title=f"{APP_TITLE} - PDF to PDF/A", layout="wide")
+if st.button("← Home"):
+    st.switch_page("app.py")
+
+st.title("PDF to PDF/A")
+
+deps = get_dependency_status()
+
+st.info("Uses Ghostscript to convert to PDF/A (best-effort).")
+if not deps.ghostscript:
+    st.warning("Requires 'gs' (Ghostscript).")
+f = st.file_uploader("PDF", type=["pdf"], key="pdf2pdfa")
+if f and st.button("Convert", key="pdf2pdfa_btn"):
+    if not deps.ghostscript:
+        st.stop()
+    with tempfile.TemporaryDirectory() as td:
+        in_path = Path(td) / "input.pdf"
+        out_path = Path(td) / "output_pdfa.pdf"
+        in_path.write_bytes(f.read())
+        subprocess.check_call(
+            [
+                deps.gs_cmd or "gs",
+                "-dPDFA",
+                "-dBATCH",
+                "-dNOPAUSE",
+                "-sProcessColorModel=DeviceRGB",
+                "-sDEVICE=pdfwrite",
+                "-sOutputFile=" + str(out_path),
+                str(in_path),
+            ]
+        )
+        download_button("Download PDF/A", out_path.read_bytes(), "document-pdfa.pdf")
+
