@@ -2,10 +2,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+root_str = str(ROOT)
+if sys.path[:1] != [root_str]:
+    if root_str in sys.path:
+        sys.path.remove(root_str)
+    sys.path.insert(0, root_str)
 
 import streamlit as st
+import app as _app
+APP_TITLE = getattr(_app, 'APP_TITLE', 'PDF & Image Tools')
 from app import *
 
 st.set_page_config(page_title=f"{APP_TITLE} - Resize IMAGE", layout="wide")
