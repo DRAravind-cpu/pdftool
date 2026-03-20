@@ -124,6 +124,11 @@ def main() -> None:
         fname = f"{i:02d}_{slugify(title)}.py"
         page = pages / fname
         content = (
+            "import sys\n"
+            "from pathlib import Path\n\n"
+            "ROOT = Path(__file__).resolve().parents[1]\n"
+            "if str(ROOT) not in sys.path:\n"
+            "    sys.path.insert(0, str(ROOT))\n\n"
             "import streamlit as st\n"
             "from app import *\n\n"
             f"st.set_page_config(page_title=f\"{{APP_TITLE}} - {title}\", layout=\"wide\")\n"
