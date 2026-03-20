@@ -9,7 +9,27 @@ if sys.path[:1] != [root_str]:
     sys.path.insert(0, root_str)
 
 import streamlit as st
-import app as _app
+import importlib
+import importlib.util
+
+def _load_local_app():
+    app_path = (ROOT / 'app.py').resolve()
+    spec = importlib.util.spec_from_file_location('app', app_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f'Cannot load app.py from {app_path}')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules['app'] = module
+    spec.loader.exec_module(module)
+    return module
+
+try:
+    import app as _app
+    _app_file = getattr(_app, '__file__', '')
+    if not _app_file or Path(_app_file).resolve() != (ROOT / 'app.py').resolve():
+        _app = _load_local_app()
+except Exception:
+    _app = _load_local_app()
+
 APP_TITLE = getattr(_app, 'APP_TITLE', 'PDF & Image Tools')
 from app import *
 
