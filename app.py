@@ -228,6 +228,10 @@ def _uploaded_file_bytes(uploaded_file) -> bytes:
     return b""
 
 
+def uploaded_file_bytes(uploaded_file) -> bytes:
+    return _uploaded_file_bytes(uploaded_file)
+
+
 def _is_pdf_upload(uploaded_file) -> bool:
     if uploaded_file is None:
         return False
@@ -315,7 +319,7 @@ def _preview_uploaded(uploaded, *, deps: DependencyStatus):
         return
 
     if _is_pdf_upload(uploaded):
-        pdf_bytes = _uploaded_file_bytes(uploaded)
+        pdf_bytes = uploaded_file_bytes(uploaded)
         if not pdf_bytes:
             return
         _preview_pdf_bytes(pdf_bytes, deps=deps, file_name=getattr(uploaded, "name", "document.pdf"))
@@ -981,7 +985,7 @@ def main():
             )
             f = st.file_uploader("PDF", type=["pdf"], key="repair")
             if f and st.button("Repair", key="repair_btn"):
-                data = _uploaded_file_bytes(f)
+                data = uploaded_file_bytes(f)
                 try:
                     if deps.qpdf:
                         out = qpdf_optimize(data, qpdf_cmd=deps.qpdf_cmd or "qpdf")
@@ -1041,7 +1045,7 @@ def main():
                     st.stop()
                 import pytesseract
 
-                pdf_bytes = _uploaded_file_bytes(f)
+                pdf_bytes = uploaded_file_bytes(f)
                 images = pdf2image_convert_from_bytes(
                     pdf_bytes, fmt="png", dpi=220, poppler_path=deps.poppler_path
                 )

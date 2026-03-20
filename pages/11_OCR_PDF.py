@@ -57,7 +57,7 @@ if f and (run_ocr or extract_text):
         st.stop()
     import pytesseract
 
-    pdf_bytes = _uploaded_file_bytes(f)
+    pdf_bytes = uploaded_file_bytes(f)
     images = pdf2image_convert_from_bytes(
         pdf_bytes, fmt="png", dpi=220, poppler_path=deps.poppler_path
     )

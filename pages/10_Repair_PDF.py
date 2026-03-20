@@ -14,7 +14,7 @@ st.info(
 )
 f = st.file_uploader("PDF", type=["pdf"], key="repair")
 if f and st.button("Repair", key="repair_btn"):
-    data = _uploaded_file_bytes(f)
+    data = uploaded_file_bytes(f)
     try:
         if deps.qpdf:
             out = qpdf_optimize(data, qpdf_cmd=deps.qpdf_cmd or "qpdf")
