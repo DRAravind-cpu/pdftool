@@ -35,7 +35,7 @@ keep = st.checkbox("Keep aspect ratio", value=True, key="img_resize_keep")
 if f:
     img = pil_open_image(f)
     w0, h0 = img.size
-    st.image(img, caption=f"{w0}×{h0}", use_container_width=True)
+    st.image(img, caption=f"{w0}×{h0}", width='content')
     if mode == "Percent":
         pct = st.slider("Scale %", 10, 400, 100, key="img_resize_pct")
         w = max(1, int(w0 * pct / 100))

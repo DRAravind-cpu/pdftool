@@ -40,5 +40,5 @@ if a and b and st.button("Compare", key="cmp_btn"):
         tb = rb.pages[i].extract_text() if i < len(rb.pages) else ""
         score = fuzz.ratio(ta or "", tb or "")
         results.append({"page": i + 1, "similarity": score})
-    st.dataframe(results, use_container_width=True)
+    st.dataframe(results, width='stretch')
 

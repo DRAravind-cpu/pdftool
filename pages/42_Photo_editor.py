@@ -34,7 +34,7 @@ if f:
     from PIL import ImageEnhance
 
     img = pil_open_image(f)
-    st.image(img, use_container_width=True)
+    st.image(img, width='content')
     bright = st.slider("Brightness", 0.2, 2.0, 1.0, 0.05, key="img_edit_b")
     contrast = st.slider("Contrast", 0.2, 2.0, 1.0, 0.05, key="img_edit_c")
     color = st.slider("Saturation", 0.0, 2.0, 1.0, 0.05, key="img_edit_s")

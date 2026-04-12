@@ -281,7 +281,7 @@ def _preview_pdf_bytes(pdf_bytes: bytes, *, deps: DependencyStatus, file_name: s
             page = doc.load_page(0)
             pix = page.get_pixmap(dpi=140)
             png_bytes = pix.tobytes("png")
-            st.image(png_bytes, caption=f"Preview: {file_name} (page 1)", use_container_width=True)
+            st.image(png_bytes, caption=f"Preview: {file_name} (page 1)", width='content')
             return
     except Exception:
         pass
@@ -298,7 +298,7 @@ def _preview_pdf_bytes(pdf_bytes: bytes, *, deps: DependencyStatus, file_name: s
                 poppler_path=deps.poppler_path,
             )
             if images:
-                st.image(images[0], caption=f"Preview: {file_name} (page 1)", use_container_width=True)
+                st.image(images[0], caption=f"Preview: {file_name} (page 1)", width='content')
                 return
         except Exception:
             pass
@@ -329,7 +329,7 @@ def _preview_uploaded(uploaded, *, deps: DependencyStatus):
     if _is_image_upload(uploaded):
         try:
             img = pil_open_image(uploaded)
-            st.image(img, caption=f"Preview: {getattr(uploaded, 'name', 'image')}", use_container_width=True)
+            st.image(img, caption=f"Preview: {getattr(uploaded, 'name', 'image')}", width='content')
         except Exception as e:
             st.caption(f"Preview unavailable: {e}")
         return
@@ -1513,7 +1513,7 @@ def main():
                     tb = rb.pages[i].extract_text() if i < len(rb.pages) else ""
                     score = fuzz.ratio(ta or "", tb or "")
                     results.append({"page": i + 1, "similarity": score})
-                st.dataframe(results, use_container_width=True)
+                st.dataframe(results, width='stretch')
 
     st.divider()
 
@@ -1579,7 +1579,7 @@ def main():
             if f:
                 img = pil_open_image(f)
                 w0, h0 = img.size
-                st.image(img, caption=f"{w0}×{h0}", use_container_width=True)
+                st.image(img, caption=f"{w0}×{h0}", width='content')
                 if mode == "Percent":
                     pct = st.slider("Scale %", 10, 400, 100, key="img_resize_pct")
                     w = max(1, int(w0 * pct / 100))
@@ -1622,7 +1622,7 @@ def main():
             if f:
                 img = pil_open_image(f)
                 w0, h0 = img.size
-                st.image(img, use_container_width=True)
+                st.image(img, width='content')
                 x1 = st.number_input("Left", min_value=0, value=0, key="img_crop_x1")
                 y1 = st.number_input("Top", min_value=0, value=0, key="img_crop_y1")
                 x2 = st.number_input("Right", min_value=1, value=w0, key="img_crop_x2")
@@ -1764,7 +1764,7 @@ def main():
                 from PIL import ImageEnhance
 
                 img = pil_open_image(f)
-                st.image(img, use_container_width=True)
+                st.image(img, width='content')
                 bright = st.slider("Brightness", 0.2, 2.0, 1.0, 0.05, key="img_edit_b")
                 contrast = st.slider("Contrast", 0.2, 2.0, 1.0, 0.05, key="img_edit_c")
                 color = st.slider("Saturation", 0.0, 2.0, 1.0, 0.05, key="img_edit_s")

@@ -33,7 +33,7 @@ f = st.file_uploader(
 if f:
     img = pil_open_image(f)
     w0, h0 = img.size
-    st.image(img, use_container_width=True)
+    st.image(img, width='content')
     x1 = st.number_input("Left", min_value=0, value=0, key="img_crop_x1")
     y1 = st.number_input("Top", min_value=0, value=0, key="img_crop_y1")
     x2 = st.number_input("Right", min_value=1, value=w0, key="img_crop_x2")
